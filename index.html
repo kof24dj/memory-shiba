@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>極限記憶 - 可縮放版</title>
+    <style>
+        :root {
+            --primary-color: #2d3436;
+            --accent-color: #00b894;
+            --bg-color: #f5f6fa;
+            --card-bg: #ffffff;
+            --grid-gap: 6px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--primary-color);
+            overflow-y: auto; 
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin: 10px 0;
+            text-align: center;
+        }
+
+        #game-board {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 420px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 80vh; 
+            position: relative;
+            margin-bottom: 20px; 
+        }
+
+        /* 縮放容器 */
+        .zoom-wrapper {
+            width: 100%;
+            height: 65vh; 
+            overflow: auto; 
+            border: 2px dashed #dfe6e9; 
+            border-radius: 12px;
+            padding: 10px;
+            background-color: #fcfcfc;
+            touch-action: none; 
+            position: relative;
+        }
+        
+        #zoom-target-grid {
+            width: 100%; 
+            transform-origin: 0 0; 
+        }
+        
+        .zoom-hint {
+            font-size: 0.85rem;
+            color: #636e72;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: var(--grid-gap);
+            width: 100%;
+        }
+
+        .game-img {
+            width: 100%;
+            aspect-ratio: 3 / 4; 
+            object-fit: cover; 
+            border-radius: 6px; 
+            cursor: pointer;
+            border: 2px solid #dfe6e9;
+            transition: transform 0.1s, border-color 0.1s;
+            background-color: #eee;
+            -webkit-touch-callout: none; 
+            user-select: none;
+        }
+
+        .game-img:active {
+            transform: scale(0.95);
+            border-color: var(--accent-color);
+        }
+
+        .target-display {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+        }
+
+        .target-img {
+            width: 75%; 
+            max-width: 260px;
+            aspect-ratio: 3 / 4; 
+            object-fit: contain; 
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            margin-bottom: 15px;
+            border: 4px solid var(--accent-color);
+            background-color: #eee;
+        }
+
+        .timer-bar {
+            width: 75%;
+            height: 10px;
+            background: #dfe6e9;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        .timer-progress {
+            height: 100%;
+            background: var(--accent-color);
+            width: 100%;
+        }
+
+        .btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 15px 0;
+            width: 80%;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            margin-top: 20px;
+            box-shadow: 0 4px 10px rgba(0,184,148,0.4);
+        }
+        .btn:active { transform: translateY(2px); }
+
+        .level-tag {
+            background: #636e72;
+            color: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .message { text-align: center; width: 100%; }
+        
+        .loading-screen { text-align: center; margin-top: 50px;}
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .error-box {
+            background: #ffeaa7;
+            border-left: 5px solid #d63031;
+            padding: 15px;
+            font-size: 0.9rem;
+            text-align: left;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>極限記憶挑戰</h1>
+
+    <div id="game-board">
+        <div class="loading-screen">
+            <div class="loader"></div>
+            <p id="loading-text">載入圖片中 (0 / 176)...</p>
+        </div>
+    </div>
+
+    <script>
+        // ================= 設定區 =================
+        const TOTAL_GROUPS = 11;       
+        const IMAGES_PER_GROUP = 16;   
+        const TOTAL_IMAGES = TOTAL_GROUPS * IMAGES_PER_GROUP; 
+        const MEMORY_TIME = 5;         
+        const IMG_FOLDER = 'images/';  
+        const IMG_EXT = '.png';        
+        // =========================================
+
+        let allGroups = [];      
+        let playingGroups = [];  
+        let currentLevelIndex = 0;
+        let targetImageSrc = '';
+        let currentLevelDisplayImages = []; 
+        let timerInterval;
+
+        let initialPinchDistance = 0;
+        let currentGridScale = 1;
+
+        const board = document.getElementById('game-board');
+        const loadingText = document.getElementById('loading-text');
+
+        window.onload = async function() {
+            await preloadAllImagesBatched();
+        };
+
+        // --- 升級：分批載入圖片系統 ---
+        async function preloadAllImagesBatched() {
+            let loadedCount = 0;
+            let errorCount = 0;
+            const batchSize = 10; // 每次同時處理 10 張，避免瀏覽器卡死
+
+            for (let i = 1; i <= TOTAL_IMAGES; i += batchSize) {
+                const promises = [];
+                for (let j = 0; j < batchSize && (i + j) <= TOTAL_IMAGES; j++) {
+                    promises.push(loadImage(i + j));
+                }
+                
+                // 等待這 10 張圖載入完畢
+                const results = await Promise.all(promises);
+                
+                results.forEach(status => {
+                    if (status === 'ok') loadedCount++;
+                    else errorCount++;
+                });
+
+                loadingText.textContent = `載入圖片中 (${loadedCount + errorCount} / ${TOTAL_IMAGES})...`;
+            }
+
+            // 全部檢查完畢
+            if (errorCount > 0) {
+                board.innerHTML = `<div class="error-box">缺圖！有 ${errorCount} 張讀取失敗。<br>請檢查 images 資料夾內是否有 1.png ~ ${TOTAL_IMAGES}.png<br>（注意：副檔名必須是小寫的 .png）</div>`;
+            } else {
+                buildGroups();
+                showStartScreen();
+            }
+        }
+
+        // 單張圖片載入 Promise
+        function loadImage(index) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                const fileName = `${IMG_FOLDER}${index}${IMG_EXT}`;
+                
+                img.onload = () => resolve('ok');
+                img.onerror = () => resolve('error'); // 即使失敗也要 resolve，避免卡住
+                img.src = fileName;
+            });
+        }
+        // ------------------------------
+
+        function buildGroups() {
+            allGroups = [];
+            let imgIndex = 1;
+            for (let g = 0; g < TOTAL_GROUPS; g++) {
+                let group = [];
+                for (let i = 0; i < IMAGES_PER_GROUP; i++) {
+                    group.push(`${IMG_FOLDER}${imgIndex}${IMG_EXT}`);
+                    imgIndex++;
+                }
+                allGroups.push(group);
+            }
+        }
+
+        function showStartScreen() {
+            board.innerHTML = `
+                <div class="message">
+                    <h2 style="color:#00b894;">準備完成</h2>
+                    <p>共有 ${TOTAL_GROUPS} 個題組，共 ${TOTAL_IMAGES} 張圖片</p>
+                    <p>每次遊玩題組順序將重新隨機排列</p>
+                    <button class="btn" onclick="initGame()">開始遊戲</button>
+                </div>
+            `;
+        }
+
+        function initGame() {
+            playingGroups = [...allGroups].sort(() => Math.random() - 0.5);
+            currentLevelIndex = 0;
+            startLevelLoop();
+        }
+
+        function startLevelLoop() {
+            const currentGroupImages = playingGroups[currentLevelIndex];
+            const targetIndex = Math.floor(Math.random() * currentGroupImages.length);
+            targetImageSrc = currentGroupImages[targetIndex];
+
+            let remainingImages = currentGroupImages.filter(src => src !== targetImageSrc);
+            remainingImages = remainingImages.sort(() => Math.random() - 0.5).slice(0, 8);
+
+            currentLevelDisplayImages = [targetImageSrc, ...remainingImages].sort(() => Math.random() - 0.5);
+
+            showTargetPhase();
+        }
+
+        function showTargetPhase() {
+            let timeLeft = MEMORY_TIME;
+            let currentLevel = currentLevelIndex + 1;
+            
+            board.innerHTML = `
+                <div class="target-display">
+                    <div class="level-tag">第 ${currentLevel} / ${TOTAL_GROUPS} 關</div>
+                    <h2>請記住這張圖</h2>
+                    <img src="${targetImageSrc}" class="target-img">
+                    <div style="font-size:1.5rem; font-weight:bold;">${timeLeft}</div>
+                    <div class="timer-bar"><div class="timer-progress" id="progress-bar"></div></div>
+                </div>
+            `;
+
+            const progressBar = document.getElementById('progress-bar');
+            setTimeout(() => {
+                if(progressBar) {
+                    progressBar.style.transition = `width ${timeLeft}s linear`;
+                    progressBar.style.width = '0%';
+                }
+            }, 50);
+
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                const timeDisplay = board.querySelector('.target-display div:nth-child(4)');
+                if(timeDisplay) timeDisplay.textContent = timeLeft;
+
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    startSelectionPhase();
+                }
+            }, 1000);
+        }
+
+        function startSelectionPhase() {
+            let currentLevel = currentLevelIndex + 1;
+            
+            board.innerHTML = `
+                <div class="level-tag">第 ${currentLevel} 關 - 找出目標</div>
+                <p class="zoom-hint">🔍 雙指捏合可縮放查看細節，單指可滑動視角</p>
+                <div class="zoom-wrapper" id="zoomWrapper">
+                    <div class="grid" id="zoom-target-grid">
+                        ${currentLevelDisplayImages.map(src => 
+                            `<img src="${src}" class="game-img" onclick="checkAnswer(this.src)">`
+                        ).join('')}
+                    </div>
+                </div>
+            `;
+            
+            initZoomFunctionality(); // 已修正語法錯誤
+        }
+
+        // --- 修正後的縮放功能邏輯 ---
+        function initZoomFunctionality() {
+            const wrapper = document.getElementById('zoomWrapper');
+            const targetGrid = document.getElementById('zoom-target-grid');
+            if (!wrapper || !targetGrid) return;
+
+            currentGridScale = 1;
+            targetGrid.style.width = '100%';
+
+            wrapper.addEventListener('touchstart', (e) => {
+                if (e.touches.length === 2) {
+                    initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
+                    targetGrid.setAttribute('data-start-scale', currentGridScale);
+                }
+            }, { passive: false });
+
+            wrapper.addEventListener('touchmove', (e) => {
+                if (e.touches.length === 2 && initialPinchDistance > 0) {
+                    e.preventDefault(); 
+
+                    const currentDistance = getDistance(e.touches[0], e.touches[1]);
+                    const scaleChange = currentDistance / initialPinchDistance;
+                    const startScale = parseFloat(targetGrid.getAttribute('data-start-scale') || 1);
+                    
+                    let newScale = startScale * scaleChange;
+                    newScale = Math.min(Math.max(1, newScale), 3.5);
+                    
+                    currentGridScale = newScale;
+                    targetGrid.style.width = `${newScale * 100}%`;
+                }
+            }, { passive: false });
+
+            wrapper.addEventListener('touchend', (e) => {
+                 if (e.touches.length < 2) {
+                     initialPinchDistance = 0;
+                 }
+            });
+        }
+
+        function getDistance(touch1, touch2) {
+            const dx = touch1.pageX - touch2.pageX;
+            const dy = touch1.pageY - touch2.pageY;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+        // --------------------------------
+
+        function checkAnswer(clickedSrc) {
+            const targetNum = getNumberFromSrc(targetImageSrc);
+            const clickedNum = getNumberFromSrc(clickedSrc);
+
+            if (targetNum === clickedNum) {
+                if (currentLevelIndex < TOTAL_GROUPS - 1) {
+                    board.innerHTML = `
+                        <div class="message">
+                            <h1 style="color:#00b894; font-size:4rem; margin:10px;">⭕</h1>
+                            <h2>答對了！</h2>
+                            <p>準備進入下一關...</p>
+                        </div>
+                    `;
+                    setTimeout(() => {
+                        currentLevelIndex++;
+                        startLevelLoop();
+                    }, 1000);
+                } else {
+                    gameVictory();
+                }
+            } else {
+                gameOver(targetNum, clickedNum);
+            }
+        }
+
+        function getNumberFromSrc(src) {
+            const match = src.match(/(\d+)\.png/); 
+            return match ? parseInt(match[1]) : -1;
+        }
+
+        function gameVictory() {
+            board.innerHTML = `
+                <div class="message">
+                    <h1 style="color:#fdcb6e; font-size:4rem; margin:10px;">🏆</h1>
+                    <h2>恭喜全破！</h2>
+                    <p>成功通過 11 關考驗</p>
+                    <button class="btn" onclick="initGame()">重新挑戰</button>
+                </div>
+            `;
+        }
+
+        function gameOver(targetNum, clickedNum) {
+            board.innerHTML = `
+                <div class="message">
+                    <h1 style="color:#d63031; font-size:4rem; margin:10px;">❌</h1>
+                    <h2>挑戰失敗</h2>
+                    <p>正確答案是：</p>
+                    <img src="${targetImageSrc}" style="width:120px; aspect-ratio:3/4; object-fit:contain; border-radius:10px; border:2px solid #d63031; background:#eee;">
+                    <button class="btn" onclick="initGame()">重新挑戰</button>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
