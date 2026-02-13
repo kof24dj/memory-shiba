@@ -54,11 +54,13 @@
         .zoom-wrapper {
             width: 100%;
             height: 65vh; 
-            overflow: auto; 
+            /* 隱藏原生捲軸外觀，但仍允許透過程式碼捲動 */
+            overflow: hidden; 
             border: 2px dashed #dfe6e9; 
             border-radius: 12px;
             padding: 10px;
             background-color: #fcfcfc;
+            /* 阻擋瀏覽器原生手勢，由程式碼全權接管觸控 */
             touch-action: none; 
             position: relative;
         }
@@ -220,11 +222,10 @@
             await preloadAllImagesBatched();
         };
 
-        // --- 升級：分批載入圖片系統 ---
         async function preloadAllImagesBatched() {
             let loadedCount = 0;
             let errorCount = 0;
-            const batchSize = 10; // 每次同時處理 10 張，避免瀏覽器卡死
+            const batchSize = 10; 
 
             for (let i = 1; i <= TOTAL_IMAGES; i += batchSize) {
                 const promises = [];
@@ -232,7 +233,6 @@
                     promises.push(loadImage(i + j));
                 }
                 
-                // 等待這 10 張圖載入完畢
                 const results = await Promise.all(promises);
                 
                 results.forEach(status => {
@@ -243,27 +243,24 @@
                 loadingText.textContent = `載入圖片中 (${loadedCount + errorCount} / ${TOTAL_IMAGES})...`;
             }
 
-            // 全部檢查完畢
             if (errorCount > 0) {
-                board.innerHTML = `<div class="error-box">缺圖！有 ${errorCount} 張讀取失敗。<br>請檢查 images 資料夾內是否有 1.png ~ ${TOTAL_IMAGES}.png<br>（注意：副檔名必須是小寫的 .png）</div>`;
+                board.innerHTML = `<div class="error-box">缺圖！有 ${errorCount} 張讀取失敗。<br>請檢查 images 資料夾內是否有 1.png ~ ${TOTAL_IMAGES}.png</div>`;
             } else {
                 buildGroups();
                 showStartScreen();
             }
         }
 
-        // 單張圖片載入 Promise
         function loadImage(index) {
             return new Promise((resolve) => {
                 const img = new Image();
                 const fileName = `${IMG_FOLDER}${index}${IMG_EXT}`;
                 
                 img.onload = () => resolve('ok');
-                img.onerror = () => resolve('error'); // 即使失敗也要 resolve，避免卡住
+                img.onerror = () => resolve('error'); 
                 img.src = fileName;
             });
         }
-        // ------------------------------
 
         function buildGroups() {
             allGroups = [];
@@ -357,10 +354,10 @@
                 </div>
             `;
             
-            initZoomFunctionality(); // 已修正語法錯誤
+            initZoomFunctionality(); 
         }
 
-        // --- 修正後的縮放功能邏輯 ---
+        // --- 修正升級：加入單指滑動(Panning)邏輯 ---
         function initZoomFunctionality() {
             const wrapper = document.getElementById('zoomWrapper');
             const targetGrid = document.getElementById('zoom-target-grid');
@@ -369,17 +366,40 @@
             currentGridScale = 1;
             targetGrid.style.width = '100%';
 
+            // 單指滑動用的變數
+            let isPanning = false;
+            let startX = 0, startY = 0;
+            let startScrollLeft = 0, startScrollTop = 0;
+
             wrapper.addEventListener('touchstart', (e) => {
-                if (e.touches.length === 2) {
+                if (e.touches.length === 1) {
+                    // 單指：開始紀錄座標與目前的捲動位置
+                    isPanning = true;
+                    startX = e.touches[0].pageX;
+                    startY = e.touches[0].pageY;
+                    startScrollLeft = wrapper.scrollLeft;
+                    startScrollTop = wrapper.scrollTop;
+                } else if (e.touches.length === 2) {
+                    // 雙指：暫停單指滑動，開始雙指縮放
+                    isPanning = false;
                     initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
                     targetGrid.setAttribute('data-start-scale', currentGridScale);
                 }
             }, { passive: false });
 
             wrapper.addEventListener('touchmove', (e) => {
-                if (e.touches.length === 2 && initialPinchDistance > 0) {
-                    e.preventDefault(); 
+                // 阻擋原生拖曳反彈等行為，讓遊戲操作更穩定
+                e.preventDefault(); 
 
+                if (e.touches.length === 1 && isPanning) {
+                    // 單指滑動計算：透過移動差距修改捲軸位置
+                    const dx = e.touches[0].pageX - startX;
+                    const dy = e.touches[0].pageY - startY;
+                    wrapper.scrollLeft = startScrollLeft - dx;
+                    wrapper.scrollTop = startScrollTop - dy;
+
+                } else if (e.touches.length === 2 && initialPinchDistance > 0) {
+                    // 雙指縮放計算
                     const currentDistance = getDistance(e.touches[0], e.touches[1]);
                     const scaleChange = currentDistance / initialPinchDistance;
                     const startScale = parseFloat(targetGrid.getAttribute('data-start-scale') || 1);
@@ -395,6 +415,16 @@
             wrapper.addEventListener('touchend', (e) => {
                  if (e.touches.length < 2) {
                      initialPinchDistance = 0;
+                 }
+                 if (e.touches.length === 0) {
+                     isPanning = false; // 手指全離開，停止滑動
+                 } else if (e.touches.length === 1) {
+                     // 當從雙指縮放變成單指時，要重新定義滑動起點，不然畫面會瞬間跳轉
+                     isPanning = true;
+                     startX = e.touches[0].pageX;
+                     startY = e.touches[0].pageY;
+                     startScrollLeft = wrapper.scrollLeft;
+                     startScrollTop = wrapper.scrollTop;
                  }
             });
         }
